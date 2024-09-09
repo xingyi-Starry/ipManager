@@ -9,6 +9,9 @@ import (
 	"ipManager/device"
 	"net"
 	"net/http"
+	"strconv"
+
+	"github.com/gorilla/mux"
 )
 
 var tokens = make(map[string]string) // token -> username
@@ -130,15 +133,17 @@ func Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	username := loginData.Username
-	ip := r.RemoteAddr
-	ip, _, err = net.SplitHostPort(ip)
+
+	// 从 URL 中解析出设备 ID
+	id_raw := mux.Vars(r)["id"]
+	id, err := strconv.Atoi(id_raw)
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		SendErrResp(w, "Invalid device ID")
 		return
 	}
 
 	// 验证设备是否符合username
-	if device, exists := dm.GetDeviceByIP(ip); exists {
+	if device, exists := dm.GetDeviceByID(id); exists {
 		if device.Username == username {
 			if !device.Logged_in {
 				device.Logged_in = true
@@ -178,15 +183,17 @@ func Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	username := loginData.Username
-	ip := r.RemoteAddr
-	ip, _, err = net.SplitHostPort(ip)
+
+	// 从 URL 中解析出设备 ID
+	id_raw := mux.Vars(r)["id"]
+	id, err := strconv.Atoi(id_raw)
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		SendErrResp(w, "Invalid device ID")
 		return
 	}
 
 	// 验证设备是否符合username
-	if device, exists := dm.GetDeviceByIP(ip); exists {
+	if device, exists := dm.GetDeviceByID(id); exists {
 		if device.Username == username {
 			if device.Logged_in {
 				device.Logged_in = false
