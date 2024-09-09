@@ -9,10 +9,10 @@ import (
 	"ipManager/device"
 	"net"
 	"net/http"
-	"strconv"
 )
 
-var devices = make(map[string]device.Device)
+var tokens = make(map[string]string) // token -> username
+var dm = device.NewDeviceManager()
 
 func genToken(length int) (string, error) {
 	bytes := make([]byte, length)
@@ -25,21 +25,41 @@ func genToken(length int) (string, error) {
 }
 
 func NewBind(w http.ResponseWriter, r *http.Request) {
+	// 从请求体中解析出 username
+	/*示例请求体：
+	{
+		"username": "username",
+	}
+	*/
+	bodyText, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	var username BindReq
+	err = json.Unmarshal(bodyText, &username)
+	if err != nil {
+		SendErrResp(w, "Invalid request body")
+		return
+	}
+
 	// generate token
 	token, err := genToken(16)
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-
-	device := device.Device{Token: token, ID: strconv.Itoa(len(devices))}
-	devices[token] = device
+	tokens[token] = username.Username
 
 	// log
-	fmt.Println("New device: ", device)
+	fmt.Printf("%s requested a new token: %s\n", username.Username, token)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(device)
+	resp := BindResp{
+		Status: "success",
+		Token:  token,
+	}
+	json.NewEncoder(w).Encode(resp)
 }
 
 func VerifyBind(w http.ResponseWriter, r *http.Request) {
@@ -54,46 +74,135 @@ func VerifyBind(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	var tkData struct {
-		Token string `json:"token"`
-	}
+	var tkData VerifyReq
 	err = json.Unmarshal(bodyText, &tkData)
 	if err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		SendErrResp(w, "Invalid request body")
 		return
 	}
 	token := tkData.Token
 
-	if device, ok := devices[token]; ok {
-		ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if username, exists := tokens[token]; exists {
+		// 创建设备和绑定
+		ip := r.RemoteAddr
+		ip, _, err := net.SplitHostPort(ip)
 		if err != nil {
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
-		device.IP = ip
-		devices[token] = device
+		d := device.NewDevice(username, len(dm.Devices)+1, ip)
+		err = dm.AddDevice(d)
+		if err != nil {
+			SendErrResp(w, err.Error())
+			return
+		}
 
 		// log
-		fmt.Println("Device verified: ", device)
+		fmt.Println("Device bound: ", d)
 
 		w.Header().Set("Content-Type", "application/json")
-		resp := struct {
-			Status  string `json:"status"`
-			Message string `json:"message"`
-		}{
+		resp := VerifyResp{
 			Status:  "success",
 			Message: "Device bound successfully",
 		}
 		json.NewEncoder(w).Encode(resp)
 	} else {
-		resp := struct {
-			Status  string `json:"status"`
-			Message string `json:"message"`
-		}{
-			Status:  "error",
-			Message: "Invalid or expired token",
-		}
-		json.NewEncoder(w).Encode(resp)
+		SendErrResp(w, "Invalid or expired token")
+	}
+}
+
+func Login(w http.ResponseWriter, r *http.Request) {
+	// 从请求体中解析出 username
+	/*示例请求体：
+	{
+		"username": "username",
+	}
+	*/
+	bodyText, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
+	}
+	var loginData LoginReq
+	err = json.Unmarshal(bodyText, &loginData)
+	if err != nil {
+		SendErrResp(w, "Invalid request body")
+		return
+	}
+	username := loginData.Username
+	ip := r.RemoteAddr
+	ip, _, err = net.SplitHostPort(ip)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// 验证设备是否符合username
+	if device, exists := dm.GetDeviceByIP(ip); exists {
+		if device.Username == username {
+			if !device.Logged_in {
+				device.Logged_in = true
+				w.Header().Set("Content-Type", "application/json")
+				resp := LoginResp{
+					Status:  "success",
+					Message: "Device logged in successfully",
+				}
+				json.NewEncoder(w).Encode(resp)
+			} else {
+				SendErrResp(w, "Device already logged in")
+			}
+		} else {
+			SendErrResp(w, "Invalid username")
+		}
+	} else {
+		SendErrResp(w, "Device not found")
+	}
+}
+
+func Logout(w http.ResponseWriter, r *http.Request) {
+	// 从请求体中解析出 username
+	/*示例请求体：
+	{
+		"username": "username",
+	}
+	*/
+	bodyText, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	var loginData LoginReq
+	err = json.Unmarshal(bodyText, &loginData)
+	if err != nil {
+		SendErrResp(w, "Invalid request body")
+		return
+	}
+	username := loginData.Username
+	ip := r.RemoteAddr
+	ip, _, err = net.SplitHostPort(ip)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// 验证设备是否符合username
+	if device, exists := dm.GetDeviceByIP(ip); exists {
+		if device.Username == username {
+			if device.Logged_in {
+				device.Logged_in = false
+				w.Header().Set("Content-Type", "application/json")
+				resp := LoginResp{
+					Status:  "success",
+					Message: "Device logged out successfully",
+				}
+				json.NewEncoder(w).Encode(resp)
+			} else {
+				SendErrResp(w, "Device already logged out")
+			}
+		} else {
+			SendErrResp(w, "Invalid username")
+		}
+	} else {
+		SendErrResp(w, "Device not found")
 	}
 }
