@@ -37,6 +37,17 @@ type LogoutResp struct {
 	Message string `json:"message"`
 }
 
+type QueryDevice struct {
+	ID       int    `json:"id"`
+	IP       string `json:"ip"`
+	LoggedIn bool   `json:"logged_in"`
+}
+
+type QueryResp struct {
+	Status  string        `json:"status"`
+	Devices []QueryDevice `json:"devices"`
+}
+
 type ErrResp struct {
 	Status  string `json:"status"`
 	Message string `json:"message"`

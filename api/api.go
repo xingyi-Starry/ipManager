@@ -48,10 +48,17 @@ func NewBind(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// generate token
-	token, err := genToken(6)
-	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
+	genSuccess := false
+	token := ""
+	for !genSuccess {
+		token, err = genToken(3)
+		if err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		if _, exists := tokens[token]; !exists {
+			genSuccess = true
+		}
 	}
 	tokens[token] = username.Username
 
@@ -100,6 +107,7 @@ func VerifyBind(w http.ResponseWriter, r *http.Request) {
 			SendErrResp(w, err.Error())
 			return
 		}
+		delete(tokens, token)
 
 		// log
 		fmt.Println("Device bound: ", d)
@@ -233,4 +241,21 @@ func Logout(w http.ResponseWriter, r *http.Request) {
 		SendErrResp(w, "Device not found")
 		fmt.Println("api.Logout: Device not found")
 	}
+}
+
+func QueryDevices(w http.ResponseWriter, r *http.Request) { // 查询所有设备
+	devices := make([]QueryDevice, 0)
+	for _, device := range dm.Devices {
+		devices = append(devices, QueryDevice{
+			ID:       device.ID,
+			IP:       device.IP,
+			LoggedIn: device.Logged_in,
+		})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	resp := QueryResp{
+		Status:  "success",
+		Devices: devices,
+	}
+	json.NewEncoder(w).Encode(resp)
 }

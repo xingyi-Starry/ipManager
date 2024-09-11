@@ -14,6 +14,7 @@ func main() {
 	router.HandleFunc("/verify", api.VerifyBind).Methods("POST")
 	router.HandleFunc("/devices/{id}/login", api.Login).Methods("POST")
 	router.HandleFunc("/devices/{id}/logout", api.Logout).Methods("POST")
+	router.HandleFunc("/devices", api.QueryDevices).Methods("GET")
 
 	fmt.Println("Server started at :8080")
 	http.ListenAndServe(":8080", router)
