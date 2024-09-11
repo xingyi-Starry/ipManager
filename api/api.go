@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"ipManager/device"
+	"ipManager/proxy"
 	"net"
 	"net/http"
 	"strconv"
@@ -47,7 +48,7 @@ func NewBind(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// generate token
-	token, err := genToken(16)
+	token, err := genToken(6)
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
@@ -124,12 +125,14 @@ func Login(w http.ResponseWriter, r *http.Request) {
 	bodyText, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		fmt.Println("api.Login:", err)
 		return
 	}
 	var loginData LoginReq
 	err = json.Unmarshal(bodyText, &loginData)
 	if err != nil {
 		SendErrResp(w, "Invalid request body")
+		fmt.Println("api.Login:", err)
 		return
 	}
 	username := loginData.Username
@@ -139,28 +142,39 @@ func Login(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.Atoi(id_raw)
 	if err != nil {
 		SendErrResp(w, "Invalid device ID")
+		fmt.Println("api.Login:", err)
 		return
 	}
 
 	// 验证设备是否符合username
 	if device, exists := dm.GetDeviceByID(id); exists {
 		if device.Username == username {
-			if !device.Logged_in {
-				device.Logged_in = true
-				w.Header().Set("Content-Type", "application/json")
-				resp := LoginResp{
-					Status:  "success",
-					Message: "Device logged in successfully",
+			if !device.Logged_in { // 设备未登录
+				err = proxy.Login(username, device.IP)
+				if err != nil { // 登录失败
+					SendErrResp(w, err.Error())
+					fmt.Println("api.Login:", err)
+				} else { // 登录成功
+					device.Logged_in = true
+					w.Header().Set("Content-Type", "application/json")
+					resp := LoginResp{
+						Status:  "success",
+						Message: "Device logged in successfully",
+					}
+					json.NewEncoder(w).Encode(resp)
+					fmt.Println("Device logged in: ", device)
 				}
-				json.NewEncoder(w).Encode(resp)
-			} else {
+			} else { // 设备已登录
 				SendErrResp(w, "Device already logged in")
+				fmt.Println("api.Login: Device already logged in")
 			}
 		} else {
 			SendErrResp(w, "Invalid username")
+			fmt.Println("api.Login: Invalid username")
 		}
 	} else {
 		SendErrResp(w, "Device not found")
+		fmt.Println("api.Login: Device not found")
 	}
 }
 
@@ -174,12 +188,14 @@ func Logout(w http.ResponseWriter, r *http.Request) {
 	bodyText, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		fmt.Println("api.Logout:", err)
 		return
 	}
 	var loginData LoginReq
 	err = json.Unmarshal(bodyText, &loginData)
 	if err != nil {
 		SendErrResp(w, "Invalid request body")
+		fmt.Println("api.Logout:", err)
 		return
 	}
 	username := loginData.Username
@@ -189,6 +205,7 @@ func Logout(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.Atoi(id_raw)
 	if err != nil {
 		SendErrResp(w, "Invalid device ID")
+		fmt.Println("api.Logout:", err)
 		return
 	}
 
@@ -203,13 +220,17 @@ func Logout(w http.ResponseWriter, r *http.Request) {
 					Message: "Device logged out successfully",
 				}
 				json.NewEncoder(w).Encode(resp)
+				fmt.Println("Device logged out: ", device)
 			} else {
 				SendErrResp(w, "Device already logged out")
+				fmt.Println("api.Logout: Device already logged out")
 			}
 		} else {
 			SendErrResp(w, "Invalid username")
+			fmt.Println("api.Logout: Invalid username")
 		}
 	} else {
 		SendErrResp(w, "Device not found")
+		fmt.Println("api.Logout: Device not found")
 	}
 }
